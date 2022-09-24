@@ -2,20 +2,13 @@
 #![no_std]
 #![no_main]
 
-use cortex_m::delay::Delay;
 use panic_rtt_target as _;
 
-use nb::block;
-
-use stm32f1xx_hal::{prelude::*, pac, timer::Timer, stm32};
+use stm32f1xx_hal::{prelude::*, pac};
 use cortex_m_rt::entry;
-use cortex_m_semihosting::{debug, hprintln};
 use dht11::Dht11;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
 use rtt_target::{rprintln, rtt_init_print};
-use stm32f1xx_hal::adc::Adc;
 use stm32f1xx_hal::delay;
-use stm32f1xx_hal::time::MegaHertz;
 
 const CLOCK_SPEED: u32 = 16;
 
@@ -34,12 +27,12 @@ fn main() -> ! {
     let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
     let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
 
-    let mut pin = gpiob.pb0.into_open_drain_output(&mut gpiob.crl);
-    let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    let pin = gpiob.pb0.into_open_drain_output(&mut gpiob.crl);
+    let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     rprintln!("Initialized 2");
 
-    let mut clocks = rcc.cfgr.sysclk(CLOCK_SPEED.mhz()).freeze(&mut flash.acr);
+    let clocks = rcc.cfgr.sysclk(CLOCK_SPEED.mhz()).freeze(&mut flash.acr);
     let mut delay = delay::Delay::new(cp.SYST, clocks);
     let mut dht11 = Dht11::new(pin);
 
