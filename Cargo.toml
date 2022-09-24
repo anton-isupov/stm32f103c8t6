@@ -1,0 +1,30 @@
+[package]
+name = "stm32f103c8t6"
+version = "0.1.0"
+edition = "2021"
+
+# Зависимости для разработки под процессор Cortex-M3
+[dependencies]
+cortex-m = "*"
+cortex-m-rt = "*"
+cortex-m-semihosting = "*"
+rtt-target = {version = "0.3.1", features=["cortex-m"]}
+panic-rtt-target = {version = "0.1.2", features=["cortex-m"]}
+nb = "0.1.2"
+embedded-hal = "0.2.4"
+dht11 = "0.1.0"
+
+# Пакет для разработки под отладочные платы stm32f1
+[dependencies.stm32f1xx-hal]
+version = "0.5.2"
+features = ["stm32f100", "rt"]
+
+[[bin]]
+name = "stm32f103c8t6"
+test = false
+bench = false
+
+[profile.release]
+codegen-units = 1
+debug = true
+lto = true
