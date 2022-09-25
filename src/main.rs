@@ -73,10 +73,18 @@ fn main() -> ! {
     rprintln!("Written AT+GMR command");
     rx1 = read_ok_msg(rx1);
 
+    // Uncomment for first usage. Start TCP server TODO
+/*    let res = tx1.write_str(" AT+CIPMUX=1\r\n").unwrap();
+    rprintln!("Written AT+CIPMUX=1 command");
+    rx1 = read_ok_msg(rx1);
+
+    let res = tx1.write_str("AT+CIPSERVER=1\r\n").unwrap();
+    rprintln!("Written AT+CIPSERVER=1 command");
+    rx1 = read_ok_msg(rx1);*/
+
     let res = tx1.write_str("AT+CWSAP?\r\n").unwrap();
     rprintln!("Written AT+CWSAP? command");
     rx1 = read_ok_msg(rx1);
-
 
     let res = tx1.write_str("AT+CIPSTATUS\r\n").unwrap();
     rprintln!("Written AT+CIPSTATUS command");
