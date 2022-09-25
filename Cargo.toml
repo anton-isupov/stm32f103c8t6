@@ -16,7 +16,7 @@ dht11 = "0.1.0"
 
 # Пакет для разработки под отладочные платы stm32f1
 [dependencies.stm32f1xx-hal]
-version = "0.5.2"
+version = "0.9.0"
 features = ["stm32f100", "rt"]
 
 [[bin]]
