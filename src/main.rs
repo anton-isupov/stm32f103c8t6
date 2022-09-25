@@ -42,7 +42,8 @@ fn main() -> ! {
     let rx = gpioa.pa3;
 
     let pin = gpiob.pb0.into_open_drain_output(&mut gpiob.crl);
-    let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    led.set_high();
 
     rprintln!("Initialized pins");
 
@@ -60,7 +61,7 @@ fn main() -> ! {
             .baudrate(115200.bps())
             .stopbits(StopBits::STOP1)
             .parity_none(),
-        clocks
+        clocks,
     );
 
     let (mut tx1, mut rx1) = serial.split();
@@ -74,14 +75,14 @@ fn main() -> ! {
     rx1 = read_ok_msg(rx1);
 
     // Uncomment for first usage. Start TCP server TODO
-/*    let res = tx1.write_str(" AT+CIPMUX=1\r\n").unwrap();
-    rprintln!("Written AT+CIPMUX=1 command");
-    rx1 = read_ok_msg(rx1);
+    /*    let res = tx1.write_str(" AT+CIPMUX=1\r\n").unwrap();
+        rprintln!("Written AT+CIPMUX=1 command");
+        rx1 = read_ok_msg(rx1);
 
-    let res = tx1.write_str("AT+CIPSERVER=1\r\n").unwrap();
-    rprintln!("Written AT+CIPSERVER=1 command");
-    rx1 = read_ok_msg(rx1);*/
-
+        let res = tx1.write_str("AT+CIPSERVER=1\r\n").unwrap();
+        rprintln!("Written AT+CIPSERVER=1 command");
+        rx1 = read_ok_msg(rx1);
+    */
     let res = tx1.write_str("AT+CWSAP?\r\n").unwrap();
     rprintln!("Written AT+CWSAP? command");
     rx1 = read_ok_msg(rx1);
@@ -100,6 +101,7 @@ fn main() -> ! {
             rprint!("{}", byte as char);
             if byte as char == '!' {
                 rprintln!();
+                led.set_low();
                 let res = tx1.write_str("AT+CIPSEND=0,3\r\n").unwrap();
                 rprintln!("Written AT+CIPSEND=0,3 command");
                 rx1 = read_ok_msg(rx1);
