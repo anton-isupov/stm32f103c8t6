@@ -1,4 +1,3 @@
-#![deny(unsafe_code)]
 #![no_std]
 #![no_main]
 
@@ -12,19 +11,24 @@ use cortex_m_rt::entry;
 use dht11::Dht11;
 use embedded_hal::blocking::delay;
 use nb::block;
-use rtt_target::{rprint, rprintln, rtt_init_print};
 use stm32f1xx_hal::dma::Half;
-use stm32f1xx_hal::serial::{Config, Event, Rx, Rx2, Serial, StopBits};
+use stm32f1xx_hal::gpio::{CRH, Output, Pin, PushPull};
+use stm32f1xx_hal::pac::USART2;
+use stm32f1xx_hal::serial::{Config, Event, Rx, Rx2, Serial, StopBits, Tx};
 use stm32f1xx_hal::time::{Hertz};
+use stm32f1xx_hal::pac::interrupt;
+use rtt_target::{rtt_init_print, rprintln, rprint};
 
 const CLOCK_SPEED: u32 = 16 * 1000 * 1000;
+
+static mut RX: Option<Rx<USART2>> = None;
+static mut TX: Option<Tx<USART2>> = None;
+static mut LED: Option<Pin<Output<PushPull>, CRH, 'C', 13>> = None;
 
 // Определяем входную функцию.
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
-    rprintln!("Initializing...");
-
     // Получаем управление над аппаратными средствами
     let cp = cortex_m::Peripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
@@ -32,27 +36,17 @@ fn main() -> ! {
     let mut rcc = dp.RCC.constrain();
 
     let mut afio = dp.AFIO.constrain();
-    let mut gpiob = dp.GPIOB.split();
     let mut gpioc = dp.GPIOC.split();
     let mut gpioa = dp.GPIOA.split();
-
-    let channels = dp.DMA1.split();
 
     let tx = gpioa.pa2.into_alternate_push_pull(&mut gpioa.crl);
     let rx = gpioa.pa3;
 
-    let pin = gpiob.pb0.into_open_drain_output(&mut gpiob.crl);
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
     led.set_high();
 
-    rprintln!("Initialized pins");
-
     let clocks = rcc.cfgr.sysclk(Hertz::from_raw(CLOCK_SPEED)).freeze(&mut flash.acr);
     let mut delay = Delay::new(cp.SYST, CLOCK_SPEED);
-    let mut dht11 = Dht11::new(pin);
-
-    rprintln!("Initialized clocks and DHT11");
-
     let mut serial = Serial::usart2(
         dp.USART2,
         (tx, rx),
@@ -63,94 +57,69 @@ fn main() -> ! {
             .parity_none(),
         clocks,
     );
-
     let (mut tx1, mut rx1) = serial.split();
+    tx1.listen();
+    rx1.listen();
+    rx1.listen_idle();
 
-    let res = tx1.write_str("AT+CIFSR\r\n").unwrap();
-    rprintln!("Written AT+CIFSR command");
-    rx1 = read_ok_msg(rx1);
+    cortex_m::interrupt::free(|_| unsafe {
+        TX.replace(tx1);
+        RX.replace(rx1);
+        LED.replace(led);
+    });
 
-    let res = tx1.write_str("AT+GMR\r\n").unwrap();
-    rprintln!("Written AT+GMR command");
-    rx1 = read_ok_msg(rx1);
-
-    // Uncomment for first usage. Start TCP server TODO
-    /*    let res = tx1.write_str(" AT+CIPMUX=1\r\n").unwrap();
-        rprintln!("Written AT+CIPMUX=1 command");
-        rx1 = read_ok_msg(rx1);
-
-        let res = tx1.write_str("AT+CIPSERVER=1\r\n").unwrap();
-        rprintln!("Written AT+CIPSERVER=1 command");
-        rx1 = read_ok_msg(rx1);
-    */
-    let res = tx1.write_str("AT+CWSAP?\r\n").unwrap();
-    rprintln!("Written AT+CWSAP? command");
-    rx1 = read_ok_msg(rx1);
-
-    let res = tx1.write_str("AT+CIPSTATUS\r\n").unwrap();
-    rprintln!("Written AT+CIPSTATUS command");
-    rx1 = read_ok_msg(rx1);
-
-    rprintln!("Start infinite loop");
-    loop {
-        let byte_result = block!(rx1.read());
-        if byte_result.is_err() {
-            rprintln!("error"); //TODO Overrun error
-        } else {
-            let byte = byte_result.unwrap();
-            rprint!("{}", byte as char);
-            if byte as char == '!' {
-                rprintln!();
-                led.set_low();
-                let res = tx1.write_str("AT+CIPSEND=0,3\r\n").unwrap();
-                rprintln!("Written AT+CIPSEND=0,3 command");
-                rx1 = read_ok_msg(rx1);
-                let res = tx1.write_str("Hi!").unwrap();
-                rx1 = read_ok_msg(rx1);
-                break;
-            }
-        }
+    unsafe {
+        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::USART2);
     }
 
-    // The DHT11 datasheet suggests 1 second
-    rprintln!("Waiting on the sensor...");
-    delay.delay_ms(1000_u32);
+    unsafe {
+        write("AT+CIPMUX=1\r\n".as_bytes());
+        write("AT+CIPSERVER=1\r\n".as_bytes())
+    }
 
     loop {
-        match dht11.perform_measurement(&mut delay) {
-            Ok(meas) => {
-                rprintln!("Measurement {}, {}", meas.temperature, meas.humidity);
-            }
-            Err(e) => {
-                rprintln!("Error {:?}", e);
-            }
-        };
-        // Delay of at least 500ms before polling the sensor again, 1 second or more advised
-        delay.delay_ms(2000_u32);
+        cortex_m::asm::wfi()
     }
 }
 
-fn read_ok_msg(mut rx1: Rx2) -> Rx2 {
-    let mut is_o = false;
-    let mut is_k = false;
+const BUFFER_LEN: usize = 4096;
+static mut BUFFER: &mut [u8; BUFFER_LEN] = &mut [0; BUFFER_LEN];
+static mut WIDX: usize = 0;
 
-    loop {
-        let byte_result = block!(rx1.read());
-        if byte_result.is_err() {
-            rprintln!("error");  //TODO Overrun error
-        } else {
-            let byte = byte_result.unwrap();
-            rprint!("{}", byte as char);
-            if byte as char == 'O' {
-                is_o = true;
-            } else if byte as char == 'K' {
-                is_k = true;
-            }
-            if is_o && is_k {
-                break;
+unsafe fn write(buf: &[u8]) {
+    if let Some(tx) = TX.as_mut() {
+        buf.iter()
+            .for_each(|w| if let Err(_err) = nb::block!(tx.write(*w)) {})
+    }
+}
+
+#[interrupt]
+unsafe fn USART2() {
+    cortex_m::interrupt::free(|_| {
+        if let Some(led) = LED.as_mut() {
+            if let Some(rx) = RX.as_mut() {
+                if rx.is_rx_not_empty() {
+                    if let Ok(w) = nb::block!(rx.read()) {
+                        BUFFER[WIDX] = w;
+                        WIDX += 1;
+                    }
+                } else {
+                    for (i, b) in (&mut BUFFER[0..WIDX]).iter().enumerate() {
+                        let byte = *b as char;
+                        rprint!("{}", byte);
+                        if byte == '&' {
+                            rprintln!("LED ON");
+                            led.set_low();
+                        }
+                        if byte == '#' {
+                            rprintln!("LED OFF");
+                            led.set_high();
+                        }
+                    }
+
+                    WIDX = 0;
+                }
             }
         }
-    }
-    rprintln!();
-    return rx1;
+    })
 }

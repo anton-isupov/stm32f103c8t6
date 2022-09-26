@@ -13,6 +13,7 @@ panic-rtt-target = {version = "0.1.2", features=["cortex-m"]}
 nb = "0.1.2"
 embedded-hal = "0.2.4"
 dht11 = "0.1.0"
+panic-halt = "0.2.0"
 
 # Пакет для разработки под отладочные платы stm32f1
 [dependencies.stm32f1xx-hal]
